@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="si">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Class - QR Scanner</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif; background-color: #f0f2f5; color: #333; display: flex; flex-direction: column; align-items: center; margin: 0; }
+        h1 { color: #1877f2; }
+        #video-container { position: relative; width: 80%; max-width: 500px; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        #video { width: 100%; display: block; }
+        #result { margin-top: 20px; padding: 15px; background-color: white; border-radius: 8px; width: 80%; max-width: 470px; text-align: center; font-size: 1.1em; line-height: 1.6; white-space: pre-wrap; }
+        .success { border-left: 5px solid #4CAF50; }
+        .error { border-left: 5px solid #F44336; color: #F44336; }
+        #scan-line { position: absolute; top: 50%; left: 0; width: 100%; height: 3px; background: rgba(255, 0, 0, 0.7); box-shadow: 0 0 10px red; display: none; animation: scan 1.5s infinite ease-in-out; }
+        @keyframes scan { 0% { top: 0; } 50% { top: 98%; } 100% { top: 0; } }
+    </style>
+</head>
+<body>
+    <h1>Smart Class පැමිණීමේ පද්ධතිය</h1>
+    <div id="video-container">
+        <video id="video" playsinline></video>
+        <div id="scan-line"></div>
+    </div>
+    <div id="result">කැමරාව ආරම්භ වෙමින් පවතී...</div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
+    <script>
+        const video = document.getElementById("video");
+        const resultDiv = document.getElementById("result");
+        const scanLine = document.getElementById("scan-line");
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+        let scanning = true;
+
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    scanLine.style.display = 'block';
+                    resultDiv.innerText = "QR කේතයක් වෙත කැමරාව යොමු කරන්න...";
+                    requestAnimationFrame(tick);
+                };
+            } catch (err) {
+                console.error("Camera Error:", err);
+                resultDiv.innerText = "කැමරාවට පිවිසිය නොහැක. කරුණාකර අවසර ලබා දෙන්න.";
+                resultDiv.className = 'error';
+            }
+        }
+
+        function tick() {
+            if (!scanning) return;
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert",
+                });
+
+                if (code) {
+                    scanning = false; // Stop scanning once a code is found
+                    handleQRCode(code.data);
+                }
+            }
+            if(scanning) {
+                requestAnimationFrame(tick);
+            }
+        }
+
+        async function handleQRCode(studentId) {
+            resultDiv.innerText = `${studentId} සකසමින්...`;
+            try {
+                const response = await fetch('/scan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ studentId: studentId })
+                });
+                
+                const data = await response.json();
+
+                if (response.ok) {
+                    resultDiv.innerText = data.message;
+                    resultDiv.className = 'success';
+                    // Set color based on payment status
+                    if(data.paymentColor === 'green') {
+                        resultDiv.style.borderLeftColor = '#4CAF50';
+                    } else {
+                        resultDiv.style.borderLeftColor = '#F44336';
+                    }
+                } else {
+                    resultDiv.innerText = `දෝෂයකි: ${data.message}`;
+                    resultDiv.className = 'error';
+                }
+
+            } catch (error) {
+                console.error('Fetch Error:', error);
+                resultDiv.innerText = "පද්ධතිය හා සම්බන්ධ වීමේ දෝෂයකි.";
+                resultDiv.className = 'error';
+            }
+            
+            // Resume scanning after 3 seconds
+            setTimeout(() => {
+                scanning = true;
+                resultDiv.innerText = "QR කේතයක් වෙත කැමරාව යොමු කරන්න...";
+                resultDiv.className = '';
+                requestAnimationFrame(tick);
+            }, 3000);
+        }
+
+        // Start the camera when the page loads
+        startCamera();
+    </script>
+</body>
+</html>
